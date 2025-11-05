@@ -123,7 +123,7 @@ export default function Painel() {
           <div className="row" style={{ marginTop: 8 }}>
             <button className="btn primary" onClick={liberar} disabled={liberado}>Liberar Presença</button>
             <button className="btn" onClick={bloquear} disabled={!liberado}>Bloquear Presença</button>
-            <button className="btn" onClick={resetarTudo}>Resetar TUDO</button>
+            <button className="btn" onClick={resetarTudo}>Resetar Presença</button>
           </div>
         </div>
       )}
