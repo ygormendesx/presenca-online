@@ -25,7 +25,7 @@ export default function Header() {
   <div className="header-inner">
     <div className="brand">
       <img
-        src="/src/assets/cbmba.png"
+        src="/cbmba.png"
         alt="Logo"
         className="brand-logo"
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
