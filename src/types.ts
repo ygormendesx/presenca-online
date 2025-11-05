@@ -1,0 +1,1 @@
+export type Aluno={numero:string;graduacao:string;nome:string;matricula?:string};export type Presenca={numero:string;carimbo:string};
