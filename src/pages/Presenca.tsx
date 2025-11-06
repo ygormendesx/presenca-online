@@ -1,53 +1,65 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Storage } from '../data'
-import rosterDefault from '../data/alunos.json'
-import { Aluno } from '../types'
-type Tela = 'form' | 'ok' | 'already' | 'error'
-function fmtDataHora(iso: string) { const d = new Date(iso); return { data: d.toLocaleDateString('pt-BR'), hora: d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) } }
+import React, { useEffect, useState } from 'react';
+import rosterDefault from '../data/alunos.json';
+import { getLiberado, watchLiberado, registrarPresenca, type Presenca, type Periodo } from '../data/firebasePresenca';
+
 export default function Presenca() {
-  const [numero, setNumero] = useState('')
-  const [tela, setTela] = useState<Tela>('form')
-  const [aluno, setAluno] = useState<Aluno | null>(null)
-  const [carimbo, setCarimbo] = useState('')
-  const [erro, setErro] = useState('')
-  const [liberado, setLiberado] = useState(Storage.isLiberado())
+  const [numero, setNumero] = useState('');
+  const [liberado, setLiberadoState] = useState<boolean>(false);
+  const [msg, setMsg] = useState<string>('');
 
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => { if (e.key && e.key.startsWith('cefs_bloqueio_v1')) setLiberado(Storage.isLiberado()) }
-    window.addEventListener('storage', onStorage)
-    const id = setInterval(() => setLiberado(Storage.isLiberado()), 1500)
-    return () => { window.removeEventListener('storage', onStorage); clearInterval(id) }
-  }, [])
+    const unsub = watchLiberado(setLiberadoState);
+    return () => unsub();
+  }, []);
 
-  const roster: Aluno[] = useMemo(() => {
-    const ex = Storage.getRoster()
-    if (ex.length === 0 && (rosterDefault as Aluno[]).length) { Storage.setRoster(rosterDefault as Aluno[]); return rosterDefault as Aluno[] }
-    return ex
-  }, [])
+  async function enviar() {
+    setMsg('');
+    const ok = await getLiberado();
+    if (!ok) { setMsg('ERRO NA CONFIRMAÇÃO DE PRESENÇA — Lista bloqueada.'); return; }
 
-  function enviar() {
-    if (!liberado) { setErro('Presença bloqueada. Aguarde o aluno de dia liberar.'); setTela('error'); return }
-    const n = numero.trim(); if (!n) { setErro('Digite seu número.'); setTela('error'); return }
-    const a = roster.find(x => x.numero === n); if (!a) { setErro('Número não encontrado.'); setTela('error'); return }
-    setAluno(a); const res = Storage.registrar(n)
-    if (res.status === 'ok') { setCarimbo(res.carimbo); setTela('ok'); setNumero(''); return }
-    if (res.status === 'already') { setCarimbo(res.carimbo); setTela('already'); setNumero(''); return }
-    setErro(res.reason || 'Erro inesperado.'); setTela('error')
+    const aluno = (rosterDefault as any[]).find(a => String(a.numero) === String(numero));
+    if (!aluno) { setMsg('Número não encontrado.'); return; }
+
+    const agora = new Date();
+    const data = agora.toISOString().slice(0,10);
+    const hora = agora.toTimeString().slice(0,5);
+    const periodo: Periodo = (agora.getHours() < 12) ? 'manha' : 'tarde';
+
+    const payload: Presenca = {
+      numero: String(aluno.numero),
+      graduacao: aluno.graduacao,
+      nome: aluno.nome,
+      status: 'Presente',
+      data, hora, periodo
+    };
+
+    const r = await registrarPresenca(payload);
+    if (r === 'ok') {
+      setMsg(`PRESENÇA CONFIRMADA\n${aluno.graduacao} ${aluno.nome}\nDATA ${data} HORA ${hora}`);
+      setNumero('');
+    } else {
+      setMsg(`PRESENÇA JÁ FOI CONFIRMADA. DATA ${data}, HORA: ${hora}`);
+    }
   }
-  function voltar() { setTela('form'); setErro(''); setAluno(null); setCarimbo('') }
 
-  if (tela === 'form') {
-    return (<div className='container'><h1>Marcar Presença</h1><div className='card'>
-      <input className='input' placeholder='NUMERO, ex: "150"' value={numero} onChange={e => setNumero(e.target.value)} />
-      <div className='row' style={{ marginTop: 8 }}>
-        <button className='btn primary' onClick={enviar} disabled={!liberado} style={{ opacity: liberado ? 1 : .5 }}>
-          {liberado ? 'Enviar Presença' : 'Presença bloqueada'}
-        </button>
-      </div>
-    </div></div>)
-  }
+  return (
+    <div className="container">
+      <h1>Marcar Presença</h1>
+      <p>Status: <b>{liberado ? 'Liberado' : 'Bloqueado'}</b></p>
 
-  if (tela === 'ok' && aluno) { const { data, hora } = fmtDataHora(carimbo); return (<div className='container'><div className='card'><h2>PRESENÇA CONFIRMADA</h2><p><strong>{aluno.graduacao} {aluno.nome}</strong><br />Nº {aluno.numero}{aluno.matricula ? ` • Matrícula ${aluno.matricula}` : ''}</p><p>DATA {data} &nbsp; HORA: {hora}</p></div></div>) }
-  if (tela === 'already' && aluno) { const { data, hora } = fmtDataHora(carimbo); return (<div className='container'><div className='card'><h2>PRESENÇA JÁ FOI CONFIRMADA</h2><p><strong>{aluno.graduacao} {aluno.nome}</strong><br />Nº {aluno.numero}{aluno.matricula ? ` • Matrícula ${aluno.matricula}` : ''}</p><p>DATA {data}, HORA: {hora}</p></div></div>) }
-  return (<div className='container'><div className='card'><h2>ERRO NA CONFIRMAÇÃO DE PRESENÇA</h2><p>{erro}</p><button className='btn' onClick={voltar}>Voltar</button></div></div>)
+      <input
+        className="input"
+        placeholder="Número do aluno"
+        value={numero}
+        onChange={e => setNumero(e.target.value)}
+      />
+      <button className="btn primary" onClick={enviar} disabled={!liberado} style={{marginTop:8}}>
+        Enviar Presença
+      </button>
+
+      {msg && (
+        <pre style={{whiteSpace:'pre-wrap', marginTop:12}}>{msg}</pre>
+      )}
+    </div>
+  );
 }

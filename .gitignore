@@ -1,0 +1,15 @@
+# dependências
+node_modules
+.vite
+
+# ambiente local
+.env.local
+.env
+
+# build
+dist
+.cache
+
+# sistema
+.DS_Store
+Thumbs.db
