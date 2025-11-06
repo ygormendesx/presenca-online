@@ -1,64 +1,89 @@
-import React, { useEffect, useState } from 'react';
+// src/pages/Presenca.tsx
+import React, { useState } from 'react';
 import rosterDefault from '../data/alunos.json';
-import { getLiberado, watchLiberado, registrarPresenca, type Presenca, type Periodo } from '../data/firebasePresenca';
+import { getLiberado, registrarPresenca, type Periodo } from '../data/firebasePresenca';
 
 export default function Presenca() {
   const [numero, setNumero] = useState('');
-  const [liberado, setLiberadoState] = useState<boolean>(false);
-  const [msg, setMsg] = useState<string>('');
+  const [status, setStatus] = useState<'idle'|'ok'|'already'|'blocked'|'error'>();
+  const [mensagem, setMensagem] = useState('');
 
-  useEffect(() => {
-    const unsub = watchLiberado(setLiberadoState);
-    return () => unsub();
-  }, []);
+  const hojeISO = () => new Date().toISOString().slice(0, 10);             // AAAA-MM-DD
+  const horaHM = () =>
+    new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const periodoAtual = (): Periodo => (new Date().getHours() < 12 ? 'manha' : 'tarde');
 
   async function enviar() {
-    setMsg('');
-    const ok = await getLiberado();
-    if (!ok) { setMsg('ERRO NA CONFIRMAÇÃO DE PRESENÇA — Lista bloqueada.'); return; }
+    try {
+      setStatus(undefined);
+      setMensagem('');
 
-    const aluno = (rosterDefault as any[]).find(a => String(a.numero) === String(numero));
-    if (!aluno) { setMsg('Número não encontrado.'); return; }
+      const roster = rosterDefault as any[];
+      const aluno = roster.find(a => String(a.numero) === String(numero));
+      if (!aluno) {
+        alert('Número não encontrado.');
+        return;
+      }
 
-    const agora = new Date();
-    const data = agora.toISOString().slice(0,10);
-    const hora = agora.toTimeString().slice(0,5);
-    const periodo: Periodo = (agora.getHours() < 12) ? 'manha' : 'tarde';
+      // checa se a lista está liberada
+      const liberado = await getLiberado();
+      if (!liberado) {
+        setStatus('blocked');
+        setMensagem('Presença bloqueada pelo aluno de dia.');
+        return;
+      }
 
-    const payload: Presenca = {
-      numero: String(aluno.numero),
-      graduacao: aluno.graduacao,
-      nome: aluno.nome,
-      status: 'Presente',
-      data, hora, periodo
-    };
+      // grava no Firestore com os MESMOS campos usados pelo Painel
+      const res = await registrarPresenca({
+        numero: String(aluno.numero),
+        graduacao: aluno.graduacao ?? '',
+        nome: aluno.nome ?? '',
+        status: 'Presente',
+        data: hojeISO(),
+        hora: horaHM(),
+        periodo: periodoAtual(),
+      });
 
-    const r = await registrarPresenca(payload);
-    if (r === 'ok') {
-      setMsg(`PRESENÇA CONFIRMADA\n${aluno.graduacao} ${aluno.nome}\nDATA ${data} HORA ${hora}`);
-      setNumero('');
-    } else {
-      setMsg(`PRESENÇA JÁ FOI CONFIRMADA. DATA ${data}, HORA: ${hora}`);
+      if (res === 'ok') {
+        setStatus('ok');
+        setMensagem(`PRESENÇA CONFIRMADA\n${aluno.graduacao} ${aluno.nome}\nDATA ${hojeISO()} HORA: ${horaHM()}`);
+      } else {
+        setStatus('already');
+        setMensagem(`PRESENÇA JÁ FOI CONFIRMADA.\nDATA ${hojeISO()}, HORA: ${horaHM()}`);
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus('error');
+      setMensagem('ERRO NA CONFIRMAÇÃO DE PRESENÇA');
     }
   }
 
   return (
     <div className="container">
       <h1>Marcar Presença</h1>
-      <p>Status: <b>{liberado ? 'Liberado' : 'Bloqueado'}</b></p>
 
-      <input
-        className="input"
-        placeholder="Número do aluno"
-        value={numero}
-        onChange={e => setNumero(e.target.value)}
-      />
-      <button className="btn primary" onClick={enviar} disabled={!liberado} style={{marginTop:8}}>
-        Enviar Presença
-      </button>
+      <div className="card" style={{ maxWidth: 520 }}>
+        <input
+          className="input"
+          placeholder="Nº do aluno"
+          value={numero}
+          onChange={e => setNumero(e.target.value)}
+        />
+        <button className="btn primary" style={{ marginTop: 8 }} onClick={enviar}>
+          Enviar Presença
+        </button>
+      </div>
 
-      {msg && (
-        <pre style={{whiteSpace:'pre-wrap', marginTop:12}}>{msg}</pre>
+      {/* feedback conforme você pediu */}
+      {status && (
+        <div className="card" style={{ marginTop: 12, whiteSpace: 'pre-line' }}>
+          <b>{mensagem}</b>
+          {status === 'error' || status === 'blocked' ? (
+            <div style={{ marginTop: 8 }}>
+              <button className="btn" onClick={() => setStatus(undefined)}>Voltar</button>
+            </div>
+          ) : null}
+        </div>
       )}
     </div>
   );
