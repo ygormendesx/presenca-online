@@ -60,6 +60,7 @@ export default function LoginAlunoDeDia() {
           data: hojeISO(),
           hora: horaHM(),
           periodo: periodoAtual(),
+          isAlunoDia: true,
         });
 
         if (res === 'already') {

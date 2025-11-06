@@ -76,6 +76,7 @@ export type Presenca = {
   hora: string;    // HH:mm
   periodo: Periodo;
   createdAt?: any; // serverTimestamp()
+  isAlunoDia?: boolean;
 };
 
 const makeId = (dia: string, periodo: Periodo, numero: string) =>

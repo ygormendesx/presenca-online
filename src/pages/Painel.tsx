@@ -103,76 +103,82 @@ export default function Painel() {
 
   // 🔴 Resetar presenças do dia + período (preservando Aluno de Dia do Firestore)
   async function handleResetarPresencas() {
-    if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
+  if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
 
-    // 0) Lê do Firestore quem é o Aluno de Dia
-    const { numero: numeroAlunoDiaFS, nome: nomeAlunoDiaFS } = await getAlunoDiaInfo();
-    const numeroAlunoDia = String(numeroAlunoDiaFS || '').trim();
+  // 1) Pega todos os docs do dia+período
+  const q = query(
+    collection(db, 'presencas'),
+    where('data', '==', dia),
+    where('periodo', '==', periodo)
+  );
+  const snap = await getDocs(q);
 
+  // 2) Procura um doc com isAlunoDia === true
+  let alunoDiaDoc = snap.docs.find(d => (d.data() as any)?.isAlunoDia === true);
+  let numeroAlunoDia = alunoDiaDoc ? String((alunoDiaDoc.data() as any).numero) : '';
+
+  // 3) Fallback: tenta Firestore config/localStorage; por fim pergunta
+  if (!numeroAlunoDia) {
+    try {
+      const { numero: nCfg } = await getAlunoDiaInfo(); // se você já expôs esta função
+      if (nCfg) numeroAlunoDia = String(nCfg);
+    } catch {}
     if (!numeroAlunoDia) {
-      alert('Não encontrei o número do Aluno de Dia em config/presenca (Firestore).');
-      return;
+      const nLS = String(localStorage.getItem('aluno_dia_numero') || '').trim();
+      if (nLS) numeroAlunoDia = nLS;
     }
-
-    // 1) Buscar todas as presenças do dia+período
-    const q = query(
-      collection(db, 'presencas'),
-      where('data', '==', dia),
-      where('periodo', '==', periodo)
-    );
-    const snap = await getDocs(q);
-
-    // 2) Ver se o Aluno de Dia está presente no snapshot
-    let docAlunoDia: any | null = null;
-    snap.docs.forEach((d) => {
-      const data = d.data() as any;
-      if (String(data?.numero).trim() === numeroAlunoDia) {
-        docAlunoDia = { id: d.id, data };
+    if (!numeroAlunoDia) {
+      const input = prompt('Número do Aluno de Dia para preservar (obrigatório):');
+      if (!input) {
+        alert('Operação cancelada. Número do Aluno de Dia não informado.');
+        return;
       }
-    });
-
-    // 3) Deletar todo mundo, menos o aluno de dia
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => {
-      const data = d.data() as any;
-      if (String(data?.numero).trim() === numeroAlunoDia) return; // preserva
-      batch.delete(d.ref);
-    });
-    await batch.commit();
-
-    // 4) Se o Aluno de Dia NÃO estava presente, recria a presença dele
-    if (!docAlunoDia) {
-      // tenta pegar do roster
-      const alunoRoster = (rosterDefault as any[]).find(
-        (a: any) => String(a.numero).trim() === numeroAlunoDia
-      );
-
-      // usa nome do Firestore como fallback
-      const graduacao = alunoRoster?.graduacao || '';
-      const nome = alunoRoster?.nome || nomeAlunoDiaFS || 'Aluno de Dia';
-
-      // monta id e payload
-      const id = `${dia}-${periodo}-${numeroAlunoDia}`;
-      const ref = doc(db, 'presencas', id);
-
-      const agora = new Date();
-      const hh = String(agora.getHours()).padStart(2, '0');
-      const mm = String(agora.getMinutes()).padStart(2, '0');
-
-      await setDoc(ref, {
-        data: dia,
-        periodo,
-        numero: numeroAlunoDia,
-        graduacao,
-        nome,
-        status: 'Presente',
-        hora: `${hh}:${mm}`,
-        createdAt: serverTimestamp(),
-      });
+      numeroAlunoDia = String(input).trim();
     }
-
-    alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
   }
+
+  // 4) Deleta todos, menos o doc com flag OU com o número do aluno de dia
+  const batch = writeBatch(db);
+  snap.docs.forEach(d => {
+    const data = d.data() as any;
+    const preserve =
+      data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
+    if (!preserve) batch.delete(d.ref);
+  });
+  await batch.commit();
+
+  // 5) Se não existia doc do aluno de dia, recria agora
+  const aindaTemAlunoDia = (await getDocs(q)).docs.some(
+    d => (d.data() as any)?.isAlunoDia === true ||
+         String((d.data() as any)?.numero) === String(numeroAlunoDia)
+  );
+  if (!aindaTemAlunoDia) {
+    const alunoRoster = (rosterDefault as any[]).find(
+      (a: any) => String(a.numero).trim() === String(numeroAlunoDia)
+    );
+    const graduacao = alunoRoster?.graduacao ?? '';
+    const nome = alunoRoster?.nome ?? (localStorage.getItem('aluno_dia_nome') || 'Aluno de Dia');
+
+    const id = `${dia}-${periodo}-${numeroAlunoDia}`;
+    const ref = doc(db, 'presencas', id);
+    const hh = String(new Date().getHours()).padStart(2,'0');
+    const mm = String(new Date().getMinutes()).padStart(2,'0');
+
+    await setDoc(ref, {
+      data: dia,
+      periodo,
+      numero: numeroAlunoDia,
+      graduacao,
+      nome,
+      status: 'Presente',
+      hora: `${hh}:${mm}`,
+      isAlunoDia: true,      // 👈 mantém o flag
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
+}
 
   return (
     <div className="container">
