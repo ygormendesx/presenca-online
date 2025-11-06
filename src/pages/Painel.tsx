@@ -5,6 +5,7 @@ import {
   setLiberado as setLiberadoRemote,
   watchLiberado,
   watchPresentes,
+  getAlunoDiaInfo,           // 👈 pega nº/nome do Aluno de Dia do Firestore
   type Periodo,
 } from '../data/firebasePresenca';
 import rosterDefault from '../data/alunos.json';
@@ -100,76 +101,78 @@ export default function Painel() {
     }
   }
 
-// 🔴 Resetar presenças do dia + período (preservando Aluno de Dia)
-async function handleResetarPresencas() {
-  if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
+  // 🔴 Resetar presenças do dia + período (preservando Aluno de Dia do Firestore)
+  async function handleResetarPresencas() {
+    if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
 
-  // numero salvo no login do aluno de dia
-  const numeroAlunoDia = (localStorage.getItem('aluno_dia_numero') || '').trim();
-  if (!numeroAlunoDia) {
-    alert('Não encontrei o número do Aluno de Dia neste navegador.');
-    return;
-  }
+    // 0) Lê do Firestore quem é o Aluno de Dia
+    const { numero: numeroAlunoDiaFS, nome: nomeAlunoDiaFS } = await getAlunoDiaInfo();
+    const numeroAlunoDia = String(numeroAlunoDiaFS || '').trim();
 
-  // 1) Buscar todas as presenças do dia+período
-  const q = query(
-    collection(db, 'presencas'),
-    where('data', '==', dia),
-    where('periodo', '==', periodo)
-  );
-  const snap = await getDocs(q);
-
-  // 2) Ver se o Aluno de Dia está presente no snapshot
-  let docAlunoDia: any | null = null;
-  snap.docs.forEach((d) => {
-    const data = d.data() as any;
-    if (String(data?.numero).trim() === numeroAlunoDia) {
-      docAlunoDia = { id: d.id, data };
+    if (!numeroAlunoDia) {
+      alert('Não encontrei o número do Aluno de Dia em config/presenca (Firestore).');
+      return;
     }
-  });
 
-  // 3) Deletar todo mundo, menos o aluno de dia
-  const batch = writeBatch(db);
-  snap.docs.forEach((d) => {
-    const data = d.data() as any;
-    if (String(data?.numero).trim() === numeroAlunoDia) return; // preserva
-    batch.delete(d.ref);
-  });
-  await batch.commit();
-
-  // 4) Se o Aluno de Dia NÃO estava presente, recria a presença dele
-  if (!docAlunoDia) {
-    // pega do roster os dados do aluno de dia
-    const alunoRoster = (rosterDefault as any[]).find(
-      (a: any) => String(a.numero).trim() === numeroAlunoDia
+    // 1) Buscar todas as presenças do dia+período
+    const q = query(
+      collection(db, 'presencas'),
+      where('data', '==', dia),
+      where('periodo', '==', periodo)
     );
+    const snap = await getDocs(q);
 
-    const graduacao = alunoRoster?.graduacao || '';
-    const nome = alunoRoster?.nome || (localStorage.getItem('aluno_dia_nome') || '').trim();
-
-    // monta id e payload
-    const id = `${dia}-${periodo}-${numeroAlunoDia}`;
-    const ref = doc(db, 'presencas', id);
-
-    const agora = new Date();
-    const hh = String(agora.getHours()).padStart(2, '0');
-    const mm = String(agora.getMinutes()).padStart(2, '0');
-
-    await setDoc(ref, {
-      data: dia,
-      periodo,
-      numero: numeroAlunoDia,
-      graduacao,
-      nome,
-      status: 'Presente',
-      hora: `${hh}:${mm}`,
-      createdAt: serverTimestamp(),
+    // 2) Ver se o Aluno de Dia está presente no snapshot
+    let docAlunoDia: any | null = null;
+    snap.docs.forEach((d) => {
+      const data = d.data() as any;
+      if (String(data?.numero).trim() === numeroAlunoDia) {
+        docAlunoDia = { id: d.id, data };
+      }
     });
+
+    // 3) Deletar todo mundo, menos o aluno de dia
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => {
+      const data = d.data() as any;
+      if (String(data?.numero).trim() === numeroAlunoDia) return; // preserva
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+
+    // 4) Se o Aluno de Dia NÃO estava presente, recria a presença dele
+    if (!docAlunoDia) {
+      // tenta pegar do roster
+      const alunoRoster = (rosterDefault as any[]).find(
+        (a: any) => String(a.numero).trim() === numeroAlunoDia
+      );
+
+      // usa nome do Firestore como fallback
+      const graduacao = alunoRoster?.graduacao || '';
+      const nome = alunoRoster?.nome || nomeAlunoDiaFS || 'Aluno de Dia';
+
+      // monta id e payload
+      const id = `${dia}-${periodo}-${numeroAlunoDia}`;
+      const ref = doc(db, 'presencas', id);
+
+      const agora = new Date();
+      const hh = String(agora.getHours()).padStart(2, '0');
+      const mm = String(agora.getMinutes()).padStart(2, '0');
+
+      await setDoc(ref, {
+        data: dia,
+        periodo,
+        numero: numeroAlunoDia,
+        graduacao,
+        nome,
+        status: 'Presente',
+        hora: `${hh}:${mm}`,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
   }
-
-  alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
-}
-
 
   return (
     <div className="container">
@@ -196,26 +199,11 @@ async function handleResetarPresencas() {
       </div>
 
       <div className="row" style={{ marginTop: 12 }}>
-        <div className="kpi">
-          <div>Total</div>
-          <b>{total}</b>
-        </div>
-        <div className="kpi">
-          <div>Presentes</div>
-          <b>{qtdPresentes}</b>
-        </div>
-        <div className="kpi">
-          <div>Ausentes</div>
-          <b>{ausentes}</b>
-        </div>
-        <div className="kpi">
-          <div>Status</div>
-          <b>{liberado ? 'Liberado' : 'Bloqueado'}</b>
-        </div>
-        <div className="kpi">
-          <div>Período</div>
-          <b>{periodo === 'manha' ? 'Manhã' : 'Tarde'}</b>
-        </div>
+        <div className="kpi"><div>Total</div><b>{total}</b></div>
+        <div className="kpi"><div>Presentes</div><b>{qtdPresentes}</b></div>
+        <div className="kpi"><div>Ausentes</div><b>{ausentes}</b></div>
+        <div className="kpi"><div>Status</div><b>{liberado ? 'Liberado' : 'Bloqueado'}</b></div>
+        <div className="kpi"><div>Período</div><b>{periodo === 'manha' ? 'Manhã' : 'Tarde'}</b></div>
       </div>
 
       {/* Abas */}
@@ -223,16 +211,10 @@ async function handleResetarPresencas() {
         <button className={`tab ${aba === 'todos' ? 'active' : ''}`} onClick={() => setAba('todos')}>
           TODOS
         </button>
-        <button
-          className={`tab ${aba === 'presentes' ? 'active' : ''}`}
-          onClick={() => setAba('presentes')}
-        >
+        <button className={`tab ${aba === 'presentes' ? 'active' : ''}`} onClick={() => setAba('presentes')}>
           PRESENTES
         </button>
-        <button
-          className={`tab ${aba === 'ausentes' ? 'active' : ''}`}
-          onClick={() => setAba('ausentes')}
-        >
+        <button className={`tab ${aba === 'ausentes' ? 'active' : ''}`} onClick={() => setAba('ausentes')}>
           AUSENTES
         </button>
       </div>

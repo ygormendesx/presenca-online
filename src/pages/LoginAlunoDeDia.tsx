@@ -3,7 +3,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import rosterDefault from '../data/alunos.json';
-import { registrarPresenca, type Periodo } from '../data/firebasePresenca';
+import {
+  registrarPresenca,
+  setAlunoDiaInfo,    // 👈 novo import
+  type Periodo
+} from '../data/firebasePresenca';
 
 export default function LoginAlunoDeDia() {
   const [numero, setNumero] = useState('');
@@ -26,7 +30,7 @@ export default function LoginAlunoDeDia() {
       return;
     }
 
-    // Admin permanece igual
+    // Admin
     if (pwd === '@Admin') {
       localStorage.setItem('tipo_usuario', 'admin');
       nav('/painel');
@@ -38,6 +42,13 @@ export default function LoginAlunoDeDia() {
       localStorage.setItem('tipo_usuario', 'aluno');
       localStorage.setItem('aluno_dia_numero', String(aluno.numero));
       localStorage.setItem('aluno_dia_nome', `${aluno.graduacao} ${aluno.nome}`);
+
+      // 🔹 grava também no Firestore para que o painel (em qualquer dispositivo) saiba quem é o aluno de dia
+      try {
+        await setAlunoDiaInfo(String(aluno.numero), `${aluno.graduacao} ${aluno.nome}`);
+      } catch (err) {
+        console.error('Falha ao gravar aluno de dia no Firestore', err);
+      }
 
       // Marca presença automaticamente para o aluno de dia
       try {
@@ -51,15 +62,11 @@ export default function LoginAlunoDeDia() {
           periodo: periodoAtual(),
         });
 
-        // opcional: feedback
         if (res === 'already') {
-          // já estava marcado — tudo bem
-          // console.log('Aluno de dia já estava presente');
+          // já estava presente — tudo bem
         }
       } catch (err) {
-        console.error(err);
-        // mesmo que falhe o registro, o painel abre;
-        // você pode mostrar um aviso se preferir
+        console.error('Erro ao registrar presença do aluno de dia:', err);
       }
 
       nav('/painel');
