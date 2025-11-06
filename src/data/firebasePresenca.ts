@@ -56,7 +56,7 @@ export async function listarPresentes(dia: string, periodo: Periodo) {
     where('data', '==', dia),
     where('periodo', '==', periodo),
     where('status', '==', 'Presente'),
-    //orderBy('createdAt', 'asc') // opcional (pode pedir índice)
+    orderBy('createdAt', 'asc') // opcional (pode pedir índice)
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data());
@@ -73,7 +73,7 @@ export function watchPresentes(
     where('data', '==', dia),
     where('periodo', '==', periodo),
     where('status', '==', 'Presente'),
-    //orderBy('createdAt', 'asc') // se aparecer erro de índice, crie o índice sugerido
+    orderBy('createdAt', 'asc') // se aparecer erro de índice, crie o índice sugerido
   );
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => d.data())));
 }
