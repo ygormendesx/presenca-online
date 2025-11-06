@@ -9,6 +9,10 @@ import {
 } from '../data/firebasePresenca';
 import rosterDefault from '../data/alunos.json';
 
+// 👉 para resetar presenças (delete em lote)
+import { db } from '../lib/firebase';
+import { collection, getDocs, deleteDoc, query, where } from 'firebase/firestore';
+
 type PresRow = {
   numero: string;
   graduacao: string;
@@ -69,7 +73,7 @@ export default function Painel() {
       };
     });
 
-    const presentesCount = rows.filter(r => r.status === 'Presente').length;
+    const presentesCount = rows.filter((r) => r.status === 'Presente').length;
     return { linhas: rows, qtdPresentes: presentesCount };
   }, [presentes]);
 
@@ -77,8 +81,8 @@ export default function Painel() {
 
   // Filtra pela aba
   const linhasFiltradas = useMemo(() => {
-    if (aba === 'presentes') return linhas.filter(l => l.status === 'Presente');
-    if (aba === 'ausentes') return linhas.filter(l => l.status === 'Ausente');
+    if (aba === 'presentes') return linhas.filter((l) => l.status === 'Presente');
+    if (aba === 'ausentes') return linhas.filter((l) => l.status === 'Ausente');
     return linhas;
   }, [linhas, aba]);
 
@@ -92,6 +96,24 @@ export default function Painel() {
       setLib(!val);
       alert('Falha ao atualizar status de liberação.');
     }
+  }
+
+  // 🔴 Resetar presenças do dia + período
+  async function handleResetarPresencas() {
+    if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
+
+    const q = query(
+      collection(db, 'presencas'),
+      where('data', '==', dia),
+      where('periodo', '==', periodo)
+    );
+
+    const snap = await getDocs(q);
+    const deletions = snap.docs.map((d) => deleteDoc(d.ref));
+    await Promise.all(deletions);
+
+    alert('Presenças resetadas com sucesso!');
+    // Não precisa atualizar estado manualmente: o watchPresentes reflete em tempo real.
   }
 
   return (
@@ -111,14 +133,34 @@ export default function Painel() {
         <button className="btn" onClick={() => setPeriodo('tarde')} disabled={periodo === 'tarde'}>
           Tarde
         </button>
+
+        {/* 🔴 Botão de reset */}
+        <button className="btn danger" onClick={handleResetarPresencas}>
+          Resetar Presenças
+        </button>
       </div>
 
       <div className="row" style={{ marginTop: 12 }}>
-        <div className="kpi"><div>Total</div><b>{total}</b></div>
-        <div className="kpi"><div>Presentes</div><b>{qtdPresentes}</b></div>
-        <div className="kpi"><div>Ausentes</div><b>{ausentes}</b></div>
-        <div className="kpi"><div>Status</div><b>{liberado ? 'Liberado' : 'Bloqueado'}</b></div>
-        <div className="kpi"><div>Período</div><b>{periodo === 'manha' ? 'Manhã' : 'Tarde'}</b></div>
+        <div className="kpi">
+          <div>Total</div>
+          <b>{total}</b>
+        </div>
+        <div className="kpi">
+          <div>Presentes</div>
+          <b>{qtdPresentes}</b>
+        </div>
+        <div className="kpi">
+          <div>Ausentes</div>
+          <b>{ausentes}</b>
+        </div>
+        <div className="kpi">
+          <div>Status</div>
+          <b>{liberado ? 'Liberado' : 'Bloqueado'}</b>
+        </div>
+        <div className="kpi">
+          <div>Período</div>
+          <b>{periodo === 'manha' ? 'Manhã' : 'Tarde'}</b>
+        </div>
       </div>
 
       {/* Abas */}

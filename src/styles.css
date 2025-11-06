@@ -220,3 +220,12 @@ a{ color:var(--text); text-decoration: underline; }
 @media (max-width: 768px) {
   .login-box { max-width: 92vw; }
 }
+
+
+.btn.danger {
+  background-color: #d9534f;
+  color: #fff;
+}
+.btn.danger:hover {
+  background-color: #c9302c;
+}
