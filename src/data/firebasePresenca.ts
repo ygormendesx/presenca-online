@@ -24,7 +24,6 @@ const cfgRef = doc(db, 'config', 'presenca');
 export async function getLiberado(): Promise<boolean> {
   const s = await getDoc(cfgRef);
   if (!s.exists()) {
-    // primeira vez: cria doc com padrão bloqueado
     await setDoc(cfgRef, { liberado: false }, { merge: true });
     return false;
   }
@@ -39,26 +38,39 @@ export async function setLiberado(v: boolean) {
   await setDoc(cfgRef, { liberado: v }, { merge: true });
 }
 
-/** Guarda no Firestore quem é o Aluno de Dia (nº e nome). */
-export async function setAlunoDiaInfo(numero: string, nome: string) {
+/** Salva no Firestore quem é o Aluno de Dia + dia/período (para produção). */
+export async function setAlunoDiaInfo(params: {
+  numero: string;
+  nome: string;
+  dia: string;
+  periodo: Periodo;
+}) {
+  const { numero, nome, dia, periodo } = params;
   await setDoc(
     cfgRef,
     {
-      alunoDiaNumero: String(numero),
-      alunoDiaNome: String(nome || ''),
+      alunoDia: {
+        numero: String(numero),
+        nome: String(nome || ''),
+        dia,
+        periodo,
+      },
     },
     { merge: true }
   );
 }
 
-/** Lê do Firestore quem é o Aluno de Dia (nº e nome). */
-export async function getAlunoDiaInfo(): Promise<{ numero: string; nome: string }> {
+/** Lê do Firestore o Aluno de Dia válido para este dia/período (ou null). */
+export async function getAlunoDiaInfo(
+  dia: string,
+  periodo: Periodo
+): Promise<{ numero: string; nome: string } | null> {
   const s = await getDoc(cfgRef);
-  const d = (s.data() || {}) as any;
-  return {
-    numero: String(d?.alunoDiaNumero || ''),
-    nome: String(d?.alunoDiaNome || ''),
-  };
+  const a = (s.data() as any)?.alunoDia;
+  if (a && a.dia === dia && a.periodo === periodo && a.numero) {
+    return { numero: String(a.numero), nome: String(a.nome || '') };
+  }
+  return null;
 }
 
 /* ===========================
@@ -76,7 +88,7 @@ export type Presenca = {
   hora: string;    // HH:mm
   periodo: Periodo;
   createdAt?: any; // serverTimestamp()
-  isAlunoDia?: boolean;
+  isAlunoDia?: boolean; // 👈 importante para o reset preservar
 };
 
 const makeId = (dia: string, periodo: Periodo, numero: string) =>
@@ -88,7 +100,6 @@ export async function registrarPresenca(p: Presenca): Promise<'ok' | 'already'> 
   const ref = doc(db, 'presencas', id);
   const ja = await getDoc(ref);
   if (ja.exists()) return 'already';
-
   await setDoc(ref, { ...p, status: 'Presente', createdAt: serverTimestamp() });
   return 'ok';
 }
@@ -100,8 +111,7 @@ export async function listarPresentes(dia: string, periodo: Periodo) {
     where('data', '==', dia),
     where('periodo', '==', periodo),
     where('status', '==', 'Presente'),
-    // Se preferir sem ordenação, remova a linha abaixo
-    orderBy('createdAt', 'asc') // pode pedir índice composto
+    orderBy('createdAt', 'asc') // remova se não quiser ordenar
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data());
@@ -118,25 +128,24 @@ export function watchPresentes(
     where('data', '==', dia),
     where('periodo', '==', periodo),
     where('status', '==', 'Presente'),
-    // Se preferir sem ordenação, remova a linha abaixo
-    orderBy('createdAt', 'asc') // pode pedir índice composto
+    orderBy('createdAt', 'asc') // remova se não quiser ordenar
   );
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => d.data())));
 }
 
 /**
- * Reseta TODAS as presenças do dia/período, com opção de
- * preservar um número específico (ex.: Aluno de Dia).
- *
- * Obs.: se quiser ter certeza de preservar o Aluno de Dia
- * de forma independente do navegador, obtenha o número
- * antes via `getAlunoDiaInfo()` e passe em `preserveNumero`.
+ * Reseta TODAS as presenças do dia/período, preservando:
+ *  - qualquer doc com isAlunoDia === true; e
+ *  - (fallback) o número vindo de config para o dia/período.
  */
 export async function resetDiaPeriodo(
   dia: string,
-  periodo: Periodo,
-  preserveNumero?: string
+  periodo: Periodo
 ) {
+  // tenta ler do config o aluno de dia válido
+  const cfgAluno = await getAlunoDiaInfo(dia, periodo);
+  const numeroCfg = cfgAluno?.numero ? String(cfgAluno.numero) : '';
+
   const q = query(
     collection(db, 'presencas'),
     where('data', '==', dia),
@@ -147,12 +156,10 @@ export async function resetDiaPeriodo(
   const batch = writeBatch(db);
   snap.docs.forEach((docSnap) => {
     const d = docSnap.data() as any;
-    if (preserveNumero && String(d?.numero) === String(preserveNumero)) {
-      // mantém o Aluno de Dia
-      return;
-    }
+    const ehAlunoDiaFlag = d?.isAlunoDia === true;
+    const ehAlunoDiaCfg = numeroCfg && String(d?.numero) === numeroCfg;
+    if (ehAlunoDiaFlag || ehAlunoDiaCfg) return; // preserva
     batch.delete(docSnap.ref);
   });
-
   await batch.commit();
 }

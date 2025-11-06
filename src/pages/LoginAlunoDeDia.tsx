@@ -5,8 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import rosterDefault from '../data/alunos.json';
 import {
   registrarPresenca,
-  setAlunoDiaInfo,    // 👈 novo import
-  type Periodo
+  setAlunoDiaInfo,
+  type Periodo,
 } from '../data/firebasePresenca';
 
 export default function LoginAlunoDeDia() {
@@ -14,17 +14,21 @@ export default function LoginAlunoDeDia() {
   const [pwd, setPwd] = useState('');
   const nav = useNavigate();
 
-  // helpers
   const hojeISO = () => new Date().toISOString().slice(0, 10); // AAAA-MM-DD
   const horaHM = () =>
-    new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const periodoAtual = (): Periodo => (new Date().getHours() < 12 ? 'manha' : 'tarde');
+    new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  const periodoAtual = (): Periodo =>
+    new Date().getHours() < 12 ? 'manha' : 'tarde';
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
 
     const roster = rosterDefault as any[];
-    const aluno = roster.find(a => String(a.numero) === String(numero));
+    const aluno = roster.find((a) => String(a.numero) === String(numero));
     if (!aluno) {
       alert('Número não encontrado.');
       return;
@@ -39,27 +43,38 @@ export default function LoginAlunoDeDia() {
 
     // Aluno de dia
     if (pwd === 'CEFS2025') {
+      const dia = hojeISO();
+      const periodo = periodoAtual();
+
       localStorage.setItem('tipo_usuario', 'aluno');
       localStorage.setItem('aluno_dia_numero', String(aluno.numero));
-      localStorage.setItem('aluno_dia_nome', `${aluno.graduacao} ${aluno.nome}`);
+      localStorage.setItem(
+        'aluno_dia_nome',
+        `${aluno.graduacao} ${aluno.nome}`
+      );
 
-      // 🔹 grava também no Firestore para que o painel (em qualquer dispositivo) saiba quem é o aluno de dia
+      // 🔹 grava também no Firestore com dia e período
       try {
-        await setAlunoDiaInfo(String(aluno.numero), `${aluno.graduacao} ${aluno.nome}`);
+        await setAlunoDiaInfo({
+          numero: String(aluno.numero),
+          nome: `${aluno.graduacao} ${aluno.nome}`,
+          dia,
+          periodo,
+        });
       } catch (err) {
         console.error('Falha ao gravar aluno de dia no Firestore', err);
       }
 
-      // Marca presença automaticamente para o aluno de dia
+      // 🔹 marca presença com o flag isAlunoDia
       try {
         const res = await registrarPresenca({
           numero: String(aluno.numero),
           graduacao: aluno.graduacao ?? '',
           nome: aluno.nome ?? '',
           status: 'Presente',
-          data: hojeISO(),
+          data: dia,
           hora: horaHM(),
-          periodo: periodoAtual(),
+          periodo,
           isAlunoDia: true,
         });
 
@@ -80,19 +95,23 @@ export default function LoginAlunoDeDia() {
   return (
     <div className="container">
       <h1>Login</h1>
-      <form onSubmit={entrar} className="card" style={{ maxWidth: 620, margin: '0 auto' }}>
+      <form
+        onSubmit={entrar}
+        className="card"
+        style={{ maxWidth: 620, margin: '0 auto' }}
+      >
         <input
           className="input"
           placeholder="Número do aluno de dia"
           value={numero}
-          onChange={e => setNumero(e.target.value)}
+          onChange={(e) => setNumero(e.target.value)}
         />
         <input
           className="input"
           type="password"
           placeholder="Senha"
           value={pwd}
-          onChange={e => setPwd(e.target.value)}
+          onChange={(e) => setPwd(e.target.value)}
           style={{ marginTop: 8 }}
         />
         <button className="btn primary" type="submit" style={{ marginTop: 8 }}>

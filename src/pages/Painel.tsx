@@ -101,11 +101,10 @@ export default function Painel() {
     }
   }
 
-  // 🔴 Resetar presenças do dia + período (preservando Aluno de Dia do Firestore)
-  async function handleResetarPresencas() {
+async function handleResetarPresencas() {
   if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
 
-  // 1) Pega todos os docs do dia+período
+  // 1) snapshot de todos do dia+período
   const q = query(
     collection(db, 'presencas'),
     where('data', '==', dia),
@@ -113,31 +112,28 @@ export default function Painel() {
   );
   const snap = await getDocs(q);
 
-  // 2) Procura um doc com isAlunoDia === true
+  // 2) tenta achar doc com isAlunoDia === true
   let alunoDiaDoc = snap.docs.find(d => (d.data() as any)?.isAlunoDia === true);
   let numeroAlunoDia = alunoDiaDoc ? String((alunoDiaDoc.data() as any).numero) : '';
 
-  // 3) Fallback: tenta Firestore config/localStorage; por fim pergunta
+  // 3) fallback: config/presenca
   if (!numeroAlunoDia) {
-    try {
-      const { numero: nCfg } = await getAlunoDiaInfo(); // se você já expôs esta função
-      if (nCfg) numeroAlunoDia = String(nCfg);
-    } catch {}
-    if (!numeroAlunoDia) {
-      const nLS = String(localStorage.getItem('aluno_dia_numero') || '').trim();
-      if (nLS) numeroAlunoDia = nLS;
-    }
-    if (!numeroAlunoDia) {
-      const input = prompt('Número do Aluno de Dia para preservar (obrigatório):');
-      if (!input) {
-        alert('Operação cancelada. Número do Aluno de Dia não informado.');
-        return;
-      }
-      numeroAlunoDia = String(input).trim();
-    }
+    const fromCfg = await getAlunoDiaInfo(dia, periodo);
+    if (fromCfg?.numero) numeroAlunoDia = String(fromCfg.numero);
+  }
+  // 4) fallback: localStorage
+  if (!numeroAlunoDia) {
+    const nLS = String(localStorage.getItem('aluno_dia_numero') || '').trim();
+    if (nLS) numeroAlunoDia = nLS;
+  }
+  // 5) último fallback: prompt
+  if (!numeroAlunoDia) {
+    const input = prompt('Número do Aluno de Dia para preservar:');
+    if (!input) { alert('Operação cancelada.'); return; }
+    numeroAlunoDia = String(input).trim();
   }
 
-  // 4) Deleta todos, menos o doc com flag OU com o número do aluno de dia
+  // 6) deleta todos, menos aluno de dia (por flag OU número)
   const batch = writeBatch(db);
   snap.docs.forEach(d => {
     const data = d.data() as any;
@@ -147,12 +143,14 @@ export default function Painel() {
   });
   await batch.commit();
 
-  // 5) Se não existia doc do aluno de dia, recria agora
-  const aindaTemAlunoDia = (await getDocs(q)).docs.some(
-    d => (d.data() as any)?.isAlunoDia === true ||
-         String((d.data() as any)?.numero) === String(numeroAlunoDia)
-  );
-  if (!aindaTemAlunoDia) {
+  // 7) se não ficou ninguém, recria o doc do aluno de dia
+  const snap2 = await getDocs(q);
+  const aindaTemAD = snap2.docs.some(d => {
+    const data = d.data() as any;
+    return data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
+  });
+
+  if (!aindaTemAD) {
     const alunoRoster = (rosterDefault as any[]).find(
       (a: any) => String(a.numero).trim() === String(numeroAlunoDia)
     );
@@ -172,12 +170,12 @@ export default function Painel() {
       nome,
       status: 'Presente',
       hora: `${hh}:${mm}`,
-      isAlunoDia: true,      // 👈 mantém o flag
+      isAlunoDia: true,
       createdAt: serverTimestamp(),
     });
   }
 
-  alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
+  alert('Presenças resetadas com sucesso!');
 }
 
   return (
