@@ -3,7 +3,7 @@ import {
   getLiberado,
   setLiberado as setLiberadoRemote, // evita conflito com setLib
   watchLiberado,
-  listarPresentes,
+  watchPresentes,
   type Periodo,
 } from '../data/firebasePresenca';
 import rosterDefault from '../data/alunos.json';
