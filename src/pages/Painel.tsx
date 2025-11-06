@@ -5,7 +5,7 @@ import {
   setLiberado as setLiberadoRemote,
   watchLiberado,
   watchPresentes,
-  getAlunoDiaInfo,           // 👈 pega nº/nome do Aluno de Dia do Firestore
+  getAlunoDiaInfo, // nº/nome do Aluno de Dia
   type Periodo,
 } from '../data/firebasePresenca';
 import rosterDefault from '../data/alunos.json';
@@ -25,6 +25,7 @@ type PresRow = {
 };
 
 type Aba = 'todos' | 'presentes' | 'ausentes';
+type AlunoDiaInfo = { numero: string; nome: string } | null;
 
 export default function Painel() {
   const [liberado, setLib] = useState(false);
@@ -33,11 +34,12 @@ export default function Painel() {
   );
   const [presentes, setPresentes] = useState<any[]>([]);
   const [aba, setAba] = useState<Aba>('todos');
+  const [alunoDia, setAlunoDia] = useState<AlunoDiaInfo>(null);
 
   const dia = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const total = (rosterDefault as any[]).length;
 
-  // Carrega e “escuta” o flag liberado em tempo real
+  // flag liberado em tempo real
   useEffect(() => {
     let unsub = () => {};
     (async () => {
@@ -48,15 +50,23 @@ export default function Painel() {
     return () => unsub();
   }, []);
 
-  // Presentes em tempo real (para o período atual)
+  // presentes em tempo real
   useEffect(() => {
     const unsub = watchPresentes(dia, periodo, setPresentes);
     return () => unsub();
   }, [dia, periodo]);
 
-  // Monta a lista consolidada (roster + presentes)
+  // aluno de dia do dia/período
+  useEffect(() => {
+    (async () => {
+      const info = await getAlunoDiaInfo(dia, periodo);
+      setAlunoDia(info);
+    })();
+  }, [dia, periodo]);
+
+  // consolida lista
   const { linhas, qtdPresentes } = useMemo(() => {
-    const mapaHora = new Map<string, string>(); // numero -> hora
+    const mapaHora = new Map<string, string>();
     const numerosPresentes = new Set<string>();
 
     for (const p of presentes) {
@@ -76,111 +86,112 @@ export default function Painel() {
       };
     });
 
-    const presentesCount = rows.filter((r) => r.status === 'Presente').length;
+    const presentesCount = rows.filter(r => r.status === 'Presente').length;
     return { linhas: rows, qtdPresentes: presentesCount };
   }, [presentes]);
 
   const ausentes = total - qtdPresentes;
 
-  // Filtra pela aba
   const linhasFiltradas = useMemo(() => {
-    if (aba === 'presentes') return linhas.filter((l) => l.status === 'Presente');
-    if (aba === 'ausentes') return linhas.filter((l) => l.status === 'Ausente');
+    if (aba === 'presentes') return linhas.filter(l => l.status === 'Presente');
+    if (aba === 'ausentes')  return linhas.filter(l => l.status === 'Ausente');
     return linhas;
   }, [linhas, aba]);
 
   async function handleLiberar(val: boolean) {
-    // otimista na UI
-    setLib(val);
+    setLib(val); // otimista
     try {
       await setLiberadoRemote(val);
     } catch {
-      // rollback se falhar
       setLib(!val);
       alert('Falha ao atualizar status de liberação.');
     }
   }
 
-async function handleResetarPresencas() {
-  if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
+  // reset com preservação do AD
+  async function handleResetarPresencas() {
+    if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
 
-  // 1) snapshot de todos do dia+período
-  const q = query(
-    collection(db, 'presencas'),
-    where('data', '==', dia),
-    where('periodo', '==', periodo)
-  );
-  const snap = await getDocs(q);
-
-  // 2) tenta achar doc com isAlunoDia === true
-  let alunoDiaDoc = snap.docs.find(d => (d.data() as any)?.isAlunoDia === true);
-  let numeroAlunoDia = alunoDiaDoc ? String((alunoDiaDoc.data() as any).numero) : '';
-
-  // 3) fallback: config/presenca
-  if (!numeroAlunoDia) {
-    const fromCfg = await getAlunoDiaInfo(dia, periodo);
-    if (fromCfg?.numero) numeroAlunoDia = String(fromCfg.numero);
-  }
-  // 4) fallback: localStorage
-  if (!numeroAlunoDia) {
-    const nLS = String(localStorage.getItem('aluno_dia_numero') || '').trim();
-    if (nLS) numeroAlunoDia = nLS;
-  }
-  // 5) último fallback: prompt
-  if (!numeroAlunoDia) {
-    const input = prompt('Número do Aluno de Dia para preservar:');
-    if (!input) { alert('Operação cancelada.'); return; }
-    numeroAlunoDia = String(input).trim();
-  }
-
-  // 6) deleta todos, menos aluno de dia (por flag OU número)
-  const batch = writeBatch(db);
-  snap.docs.forEach(d => {
-    const data = d.data() as any;
-    const preserve =
-      data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
-    if (!preserve) batch.delete(d.ref);
-  });
-  await batch.commit();
-
-  // 7) se não ficou ninguém, recria o doc do aluno de dia
-  const snap2 = await getDocs(q);
-  const aindaTemAD = snap2.docs.some(d => {
-    const data = d.data() as any;
-    return data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
-  });
-
-  if (!aindaTemAD) {
-    const alunoRoster = (rosterDefault as any[]).find(
-      (a: any) => String(a.numero).trim() === String(numeroAlunoDia)
+    const q = query(
+      collection(db, 'presencas'),
+      where('data', '==', dia),
+      where('periodo', '==', periodo)
     );
-    const graduacao = alunoRoster?.graduacao ?? '';
-    const nome = alunoRoster?.nome ?? (localStorage.getItem('aluno_dia_nome') || 'Aluno de Dia');
+    const snap = await getDocs(q);
 
-    const id = `${dia}-${periodo}-${numeroAlunoDia}`;
-    const ref = doc(db, 'presencas', id);
-    const hh = String(new Date().getHours()).padStart(2,'0');
-    const mm = String(new Date().getMinutes()).padStart(2,'0');
+    let alunoDiaDoc = snap.docs.find(d => (d.data() as any)?.isAlunoDia === true);
+    let numeroAlunoDia = alunoDiaDoc ? String((alunoDiaDoc.data() as any).numero) : '';
 
-    await setDoc(ref, {
-      data: dia,
-      periodo,
-      numero: numeroAlunoDia,
-      graduacao,
-      nome,
-      status: 'Presente',
-      hora: `${hh}:${mm}`,
-      isAlunoDia: true,
-      createdAt: serverTimestamp(),
+    if (!numeroAlunoDia) {
+      const fromCfg = await getAlunoDiaInfo(dia, periodo);
+      if (fromCfg?.numero) numeroAlunoDia = String(fromCfg.numero);
+    }
+    if (!numeroAlunoDia) {
+      const nLS = String(localStorage.getItem('aluno_dia_numero') || '').trim();
+      if (nLS) numeroAlunoDia = nLS;
+    }
+    if (!numeroAlunoDia) {
+      const input = prompt('Número do Aluno de Dia para preservar:');
+      if (!input) { alert('Operação cancelada.'); return; }
+      numeroAlunoDia = String(input).trim();
+    }
+
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+      const data = d.data() as any;
+      const preserve =
+        data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
+      if (!preserve) batch.delete(d.ref);
     });
-  }
+    await batch.commit();
 
-  alert('Presenças resetadas com sucesso!');
-}
+    const snap2 = await getDocs(q);
+    const aindaTemAD = snap2.docs.some(d => {
+      const data = d.data() as any;
+      return data?.isAlunoDia === true || String(data?.numero) === String(numeroAlunoDia);
+    });
+
+    if (!aindaTemAD) {
+      const alunoRoster = (rosterDefault as any[]).find(
+        (a: any) => String(a.numero).trim() === String(numeroAlunoDia)
+      );
+      const graduacao = alunoRoster?.graduacao ?? '';
+      const nome = alunoRoster?.nome ?? (localStorage.getItem('aluno_dia_nome') || 'Aluno de Dia');
+
+      const id = `${dia}-${periodo}-${numeroAlunoDia}`;
+      const ref = doc(db, 'presencas', id);
+      const hh = String(new Date().getHours()).padStart(2, '0');
+      const mm = String(new Date().getMinutes()).padStart(2, '0');
+
+      await setDoc(ref, {
+        data: dia,
+        periodo,
+        numero: numeroAlunoDia,
+        graduacao,
+        nome,
+        status: 'Presente',
+        hora: `${hh}:${mm}`,
+        isAlunoDia: true,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    alert('Presenças resetadas com sucesso!');
+  }
 
   return (
-    <div className="container">
+    <div className="container panel-page">
       <h1>PAINEL DO ALUNO DE DIA</h1>
+
+      {alunoDia && (
+        <div className="ad-banner">
+          <div className="ad-title">Aluno de Dia</div>
+          <div className="ad-content">
+            <span className="ad-name">{alunoDia.nome || '—'}</span>
+            <span className="ad-num">Nº {alunoDia.numero}</span>
+          </div>
+        </div>
+      )}
 
       <div className="row">
         <button className="btn" onClick={() => handleLiberar(true)} disabled={liberado}>
@@ -195,8 +206,6 @@ async function handleResetarPresencas() {
         <button className="btn" onClick={() => setPeriodo('tarde')} disabled={periodo === 'tarde'}>
           Tarde
         </button>
-
-        {/* 🔴 Botão de reset */}
         <button className="btn danger" onClick={handleResetarPresencas}>
           Resetar Presenças
         </button>
@@ -210,17 +219,10 @@ async function handleResetarPresencas() {
         <div className="kpi"><div>Período</div><b>{periodo === 'manha' ? 'Manhã' : 'Tarde'}</b></div>
       </div>
 
-      {/* Abas */}
       <div className="tabs" style={{ marginTop: 16 }}>
-        <button className={`tab ${aba === 'todos' ? 'active' : ''}`} onClick={() => setAba('todos')}>
-          TODOS
-        </button>
-        <button className={`tab ${aba === 'presentes' ? 'active' : ''}`} onClick={() => setAba('presentes')}>
-          PRESENTES
-        </button>
-        <button className={`tab ${aba === 'ausentes' ? 'active' : ''}`} onClick={() => setAba('ausentes')}>
-          AUSENTES
-        </button>
+        <button className={`tab ${aba === 'todos' ? 'active' : ''}`} onClick={() => setAba('todos')}>TODOS</button>
+        <button className={`tab ${aba === 'presentes' ? 'active' : ''}`} onClick={() => setAba('presentes')}>PRESENTES</button>
+        <button className={`tab ${aba === 'ausentes' ? 'active' : ''}`} onClick={() => setAba('ausentes')}>AUSENTES</button>
       </div>
 
       <h3 style={{ marginTop: 16 }}>
@@ -241,18 +243,22 @@ async function handleResetarPresencas() {
           </thead>
           <tbody>
             {linhasFiltradas.length === 0 ? (
-              <tr>
-                <td colSpan={4}>Ninguém presente neste período ainda.</td>
-              </tr>
+              <tr><td colSpan={4}>Ninguém presente neste período ainda.</td></tr>
             ) : (
-              linhasFiltradas.map((r) => (
-                <tr key={r.numero} style={{ opacity: r.status === 'Ausente' ? 0.6 : 1 }}>
-                  <td>{r.numero}</td>
-                  <td>{r.graduacao}</td>
-                  <td>{r.nome}</td>
-                  <td>{r.status === 'Presente' ? r.hora ?? '—' : '—'}</td>
-                </tr>
-              ))
+              linhasFiltradas.map((r) => {
+                const isAD = alunoDia && String(r.numero) === String(alunoDia.numero);
+                return (
+                  <tr key={r.numero} className={isAD ? 'is-ad' : ''} style={{ opacity: r.status === 'Ausente' ? 0.6 : 1 }}>
+                    <td>{r.numero}</td>
+                    <td>{r.graduacao}</td>
+                    <td>
+                      {r.nome}
+                      {isAD && <span className="badge-ad">Aluno de Dia</span>}
+                    </td>
+                    <td>{r.status === 'Presente' ? r.hora ?? '—' : '—'}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

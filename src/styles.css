@@ -89,7 +89,7 @@ a{ color:var(--text); text-decoration: underline; }
 }
 
 /* ===== Tabela ===== */
-.table-wrap{ width:100%; overflow-x:hidden; }           /* evita rolagem lateral */
+.table-wrap{ width:100%; overflow-x:hidden; background-color: #1d1d1d; border-radius: 5px; padding: }           /* evita rolagem lateral */
 .table{
   width:100%;
   border-collapse:collapse;
@@ -228,4 +228,153 @@ a{ color:var(--text); text-decoration: underline; }
 }
 .btn.danger:hover {
   background-color: #c9302c;
+}
+
+.btn.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+
+}
+
+.btn-mp {
+  padding:10px 14px;
+  border:1px solid var(--border);
+  background:var(--panel-2);
+  color:var(--text);
+  border-radius:10px;
+  cursor:pointer;
+  transition:.15s ease;
+  margin-bottom: 5px;
+  margin-top: 6px;
+
+
+}
+
+.btn-mp:hover{ transform: translateY(-1px); background-color: var(--primary); }
+
+/* LOGIN – centralizado horizontalmente, sem espaço gigante no topo */
+.login-page{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;   /* antes: center */
+  min-height: auto;              /* remove o 80vh */
+  padding-top: 24px;             /* respiro sob o header */
+  text-align: center;
+}
+
+/* tira a margem grande padrão do h1 */
+.login-page h1{
+  margin: 0 0 16px;
+}
+
+/* o card vira coluna e estica os filhos na largura total */
+.login-page .card{
+  width: min(620px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;          /* <- importante pro botão/inputs irem a 100% */
+  gap: 12px;
+}
+
+/* inputs e botão 'Entrar' com a MESMA largura */
+.login-page .input,
+.login-page .btn.primary{
+  width: 100%;
+}
+
+.login-page .btn.back-btn{
+  margin-top: 16px;
+}
+
+/* ===== Painel do Aluno de Dia ===== */
+.panel-page .tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-page .tab {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+  background: #1b1b1f;
+  color: #ddd;
+  cursor: pointer;
+  transition: transform .08s ease, background .1s ease, border-color .1s ease;
+}
+
+.panel-page .tab:hover {
+  transform: translateY(-1px);
+  border-color: #3a3a3f;
+}
+
+.panel-page .tab.active {
+  background: #6d28d9;   /* roxo */
+  color: #fff;
+  border-color: transparent;
+}
+
+/* KPI cards já existentes; opcionalmente reforçar visual */
+.panel-page .kpi {
+  background: #3a3a3f;
+  border: 1px solid #2a2a2a;
+  padding: 10px 14px;
+  border-radius: 12px;
+  min-width: 120px;
+}
+
+/* Banner do Aluno de Dia */
+.panel-page .ad-banner {
+  margin: 8px 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #101218;
+  border: 1px solid #334155; /* slate-700 */
+}
+
+.panel-page .ad-title {
+  font-size: 12px;
+  letter-spacing: .08em;
+  color: #94a3b8; /* slate-400 */
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.panel-page .ad-content {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.panel-page .ad-name {
+  font-weight: 600;
+  color: #e5e7eb; /* neutral-200 */
+}
+
+.panel-page .ad-num {
+  font-size: 12px;
+  color: #cbd5e1; /* slate-300 */
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #0b1220;
+  border: 1px solid #1f2a44;
+}
+
+/* Destaque da linha do Aluno de Dia */
+.panel-page .table tbody tr.is-ad {
+  background: rgba(109, 40, 217, 0.10); /* roxo translúcido */
+}
+
+.panel-page .badge-ad {
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #6d28d9;
+  color: #fff;
 }

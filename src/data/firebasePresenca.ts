@@ -73,6 +73,62 @@ export async function getAlunoDiaInfo(
   return null;
 }
 
+/* ---------- Aluno de Dia ATIVO (um por vez) ---------- */
+/** Observa em tempo real quem é o Aluno de Dia ativo (dia/período). */
+export function watchAlunoDiaAtivo(
+  cb: (a: { numero: string; nome: string; dia: string; periodo: Periodo; deviceId?: string } | null) => void
+): Unsubscribe {
+  return onSnapshot(cfgRef, (s) => {
+    const d = (s.data() || {}) as any;
+    const a = d?.alunoDiaAtivo;
+    if (a?.numero && a?.dia && a?.periodo) {
+      cb({
+        numero: String(a.numero),
+        nome: String(a.nome || ''),
+        dia: a.dia,
+        periodo: a.periodo,
+        deviceId: a.deviceId,
+      });
+    } else {
+      cb(null);
+    }
+  });
+}
+
+/** Busca quem é o Aluno de Dia ativo para este dia/período (ou null). */
+export async function getAlunoDiaAtivo(
+  dia: string,
+  periodo: Periodo
+): Promise<{ numero: string; nome: string } | null> {
+  const s = await getDoc(cfgRef);
+  const a = (s.data() as any)?.alunoDiaAtivo;
+  if (a && a.dia === dia && a.periodo === periodo && a.numero) {
+    return { numero: String(a.numero), nome: String(a.nome || '') };
+  }
+  return null;
+}
+
+/** Define o Aluno de Dia ativo (derruba anteriores via UI e serve para “tomar posse”). */
+export async function setAlunoDiaAtivo(params: {
+  numero: string; nome: string; dia: string; periodo: Periodo; deviceId?: string;
+}) {
+  const { numero, nome, dia, periodo, deviceId } = params;
+  await setDoc(
+    cfgRef,
+    {
+      alunoDiaAtivo: {
+        numero: String(numero),
+        nome: String(nome || ''),
+        dia,
+        periodo,
+        startedAt: Date.now(),
+        deviceId: deviceId || null,
+      },
+    },
+    { merge: true }
+  );
+}
+
 /* ===========================
  *  PRESENÇAS
  * =========================== */
@@ -131,6 +187,34 @@ export function watchPresentes(
     orderBy('createdAt', 'asc') // remova se não quiser ordenar
   );
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => d.data())));
+}
+
+/** Remove o flag isAlunoDia do doc de presença do anterior (se existir). */
+export async function unsetFlagAlunoDiaNoAnterior(
+  dia: string,
+  periodo: Periodo,
+  numeroAnterior: string
+) {
+  const idAnterior = `${dia}-${periodo}-${numeroAnterior}`;
+  const refAnterior = doc(db, 'presencas', idAnterior);
+  const s = await getDoc(refAnterior);
+  if (s.exists()) {
+    await setDoc(refAnterior, { isAlunoDia: false }, { merge: true });
+  }
+}
+
+/** Marca isAlunoDia no doc do novo (se a presença já existir). */
+export async function setFlagAlunoDiaNoNovo(
+  dia: string,
+  periodo: Periodo,
+  numeroNovo: string
+) {
+  const id = `${dia}-${periodo}-${numeroNovo}`;
+  const ref = doc(db, 'presencas', id);
+  const s = await getDoc(ref);
+  if (s.exists()) {
+    await setDoc(ref, { isAlunoDia: true }, { merge: true });
+  }
 }
 
 /**
