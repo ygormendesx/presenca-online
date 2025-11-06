@@ -4,14 +4,13 @@ import {
   getLiberado,
   setLiberado as setLiberadoRemote,
   watchLiberado,
-  watchPresentes, // tempo real dos presentes
+  watchPresentes,
   type Periodo,
 } from '../data/firebasePresenca';
 import rosterDefault from '../data/alunos.json';
 
-// 👉 para resetar presenças (delete em lote)
 import { db } from '../lib/firebase';
-import { collection, getDocs, deleteDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
 
 type PresRow = {
   numero: string;
@@ -98,9 +97,11 @@ export default function Painel() {
     }
   }
 
-  // 🔴 Resetar presenças do dia + período
+  // 🔴 Resetar presenças do dia + período, preservando o Aluno de Dia
   async function handleResetarPresencas() {
     if (!confirm('Tem certeza que deseja resetar TODAS as presenças deste período de hoje?')) return;
+
+    const numeroAlunoDia = localStorage.getItem('aluno_dia_numero') || '';
 
     const q = query(
       collection(db, 'presencas'),
@@ -109,11 +110,17 @@ export default function Painel() {
     );
 
     const snap = await getDocs(q);
-    const deletions = snap.docs.map((d) => deleteDoc(d.ref));
-    await Promise.all(deletions);
 
-    alert('Presenças resetadas com sucesso!');
-    // Não precisa atualizar estado manualmente: o watchPresentes reflete em tempo real.
+    const batch = writeBatch(db);
+    snap.docs.forEach((docSnap) => {
+      const data = docSnap.data() as any;
+      // preserva o aluno de dia
+      if (String(data.numero) === String(numeroAlunoDia)) return;
+      batch.delete(docSnap.ref);
+    });
+
+    await batch.commit();
+    alert('Presenças resetadas com sucesso! (Aluno de Dia preservado)');
   }
 
   return (

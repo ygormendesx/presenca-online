@@ -2,7 +2,8 @@
 import { db } from '../lib/firebase';
 import {
   doc, getDoc, setDoc, onSnapshot, collection, getDocs,
-  where, query, serverTimestamp, orderBy, type Unsubscribe
+  where, query, serverTimestamp, orderBy, type Unsubscribe,
+  writeBatch,           // <--- adicione
 } from 'firebase/firestore';
 
 const cfgRef = doc(db, 'config', 'presenca');
@@ -76,4 +77,27 @@ export function watchPresentes(
     orderBy('createdAt', 'asc') // se aparecer erro de índice, crie o índice sugerido
   );
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => d.data())));
+}
+
+export async function resetDiaPeriodo(
+  dia: string,
+  periodo: Periodo,
+  preserveNumero?: string
+) {
+  const q = query(
+    collection(db, 'presencas'),
+    where('data', '==', dia),
+    where('periodo', '==', periodo)
+  );
+  const snap = await getDocs(q);
+
+  const batch = writeBatch(db);
+  snap.docs.forEach((docSnap) => {
+    const d = docSnap.data() as any;
+    // se for o aluno que deve continuar presente, NÃO deleta
+    if (preserveNumero && String(d.numero) === String(preserveNumero)) return;
+    batch.delete(docSnap.ref);
+  });
+
+  await batch.commit();
 }
